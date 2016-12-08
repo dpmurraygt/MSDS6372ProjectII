@@ -1,0 +1,266 @@
+---
+title: "Predicting King County, WA Home Sales Prices"
+author: "Dennis Murray"
+date: "November 7, 2016"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+####Introduction
+Home prices have become one of the most examined sets of data in the American culture.  As homeowners, people are innately interested in the potential market value of their home.  For real estate agents, the pricing of the home is a key to whether the property sells in a reasonable amount of time, or if the homeowner loses some of the potential value in their home by underpricing.  Conventionally, homeowners and agents have used a rough system of "Comparable" sales of houses in the same neighborhood with similar feature sets.  Websites like Zillow have been developed solely for the purpose of showing their own estimates of an individual home based on a black-box model.
+
+
+```{r}
+library(ggplot2)
+library(GGally)
+library(pls)
+library(ggplot2)
+HomeSales<-read.csv("DATA/kc_house_data.csv")
+HomeSales$LogLotSqFt<-log(HomeSales$sqft_lot)
+HomeSales$LogSalePrice<-log(HomeSales$price)
+HomeSales$ScaledLogPrice<-scale(HomeSales$LogSalePrice, scale=TRUE, center = TRUE)
+HomeSales$LogSqFtLiving<-log(HomeSales$sqft_living)
+HomeSales$LogSqFtAbove<-log(HomeSales$sqft_above)
+HomeSales$LogSqFtBasement<-log(HomeSales$sqft_basement+1)
+HomeSales$SqRtSalesPrice<-sqrt(HomeSales$price)
+```
+
+
+
+####Examining the Data
+
+The King County home sales data set contains 21,613 observations of sales of homes in King County, Washington over a 12 month time from 2014 to 2015.  In addition to price, the dataset includes many potential explanatory variables that may help to project the price of an individual property.  For purposes of this evaluation, we will only include variables that can be evaluated on a continuous scale, and not any purely categorical variables.
+
+Price: The dollar value paid by the purchaser. With a mean of $540,088 and a standard deviation of $367,127 there is a clear right skew of the data with an extremely long tail to the data.  The maximum value of the price is $7.7MM, more than 200 standard deviations above the mean home sale value.  This data will be transformed using a log transformation to reduce the skewness of the data, and return it closer to a normal distribution.  Examination of a histogram after the transformation shows a clear improvement in the distribution.
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=price))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$price), sd=sd(HomeSales$price)), lwd=1, col='red')
+mean(HomeSales$price)
+sd(HomeSales$price)
+median(HomeSales$price)
+```
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=LogSalePrice))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$LogSalePrice), sd=sd(HomeSales$LogSalePrice)), lwd=1, col='red')
+mean(HomeSales$LogSalePrice)
+sd(HomeSales$LogSalePrice)
+median(HomeSales$LogSalePrice)
+```
+
+Year Built: The year that the house was constructed. Houses in the data set range from 1900 to 2015, with an increasing frequency from 1975 to 2005 and a clear deficit of houses built in the Depression and World War II era.  As an explanatory variable, this may prove to be with lesser value - as the value of an older home could also be related to a desirable neighborhood, design or condition of the house. 
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=yr_built))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$yr_built), sd=sd(HomeSales$yr_built)), lwd=1, col='red')
+mean(HomeSales$yr_built)
+sd(HomeSales$yr_built)
+median(HomeSales$yr_built)
+range(HomeSales$yr_built)
+```
+
+Lot  Size: In square feet, the size of the property that the home sits upon.  Similar to price, there is an extremely large range of values for lot size - from just over 500 square feet to more than 1.6MM square feet (more than 39 standard deviations above the mean of 15,106).  The mean value is heavily affected versus the median by these outliers, with the median at just more than half of the mean at 7,618 square feet.  For these reasons, the data used in the model will be log transformed to return some degree of normality.
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=sqft_lot))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$sqft_lot), sd=sd(HomeSales$sqft_lot)), lwd=1, col='red')
+mean(HomeSales$sqft_lot)
+sd(HomeSales$sqft_lot)
+median(HomeSales$sqft_lot)
+range(HomeSales$sqft_lot)
+```
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=LogLotSqFt))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$LogLotSqFt), sd=sd(HomeSales$LogLotSqFt)), lwd=1, col='red')
+mean(HomeSales$LogLotSqFt)
+sd(HomeSales$LogLotSqFt)
+median(HomeSales$LogLotSqFt)
+range(HomeSales$LogLotSqFt)
+```
+
+Square Footage: The data set includes several measures of interior square footage.  A total square footage of living space is included, with secondary measures that separate square footage above grade from basement square footage.  All three of these measures exhibit a similar skew to the lot size, with a large variance within the data and all three will be log transformed for the modeling.
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=sqft_living))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$sqft_living), sd=sd(HomeSales$sqft_living)), lwd=1, col='red')
+mean(HomeSales$sqft_living)
+sd(HomeSales$sqft_living)
+median(HomeSales$sqft_living)
+range(HomeSales$sqft_living)
+```
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=LogSqFtLiving))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$LogSqFtLiving), sd=sd(HomeSales$LogSqFtLiving)), lwd=1, col='red')
+mean(HomeSales$LogSqFtLiving)
+sd(HomeSales$LogSqFtLiving)
+median(HomeSales$LogSqFtLiving)
+range(HomeSales$LogSqFtLiving)
+```
+
+Bedrooms and Bathrooms: The data reports both the number of bedrooms as well as the number of bathrooms. We would expect both of these to increase the sale price of the home in a positive correlation.  The number of bedrooms has a mean value of 3.4 with a standard deviation of <1 bedroom.  Bathrooms average 2.1, with a standard deviation 0.77 and a median of 2.25.  
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=bedrooms))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$bedrooms), sd=sd(HomeSales$bedrooms)), lwd=1, col='red')
+mean(HomeSales$bedrooms)
+sd(HomeSales$bedrooms)
+median(HomeSales$bedrooms)
+range(HomeSales$bedrooms)
+```
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=bathrooms))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$bathrooms), sd=sd(HomeSales$bathrooms)), lwd=1, col='red')
+mean(HomeSales$bathrooms)
+sd(HomeSales$bathrooms)
+median(HomeSales$bathrooms)
+range(HomeSales$bathrooms)
+```
+
+Condition and Grade: These two measures are coded via inspector decision based on condition of the house at time of survey as well as the grade of materials used.  Grade is measured on a scale of one to thirteen.  Condition is measured on a scale of 1:5 with most homes surveyed in the range of three to five.
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=grade))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$grade), sd=sd(HomeSales$grade)), lwd=1, col='red')
+mean(HomeSales$grade)
+sd(HomeSales$grade)
+median(HomeSales$grade)
+range(HomeSales$grade)
+```
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+ggplot(data=HomeSales, aes(x=condition))+geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args=list(mean=mean(HomeSales$condition), sd=sd(HomeSales$condition)), lwd=1, col='red')
+mean(HomeSales$condition)
+sd(HomeSales$condition)
+median(HomeSales$condition)
+range(HomeSales$condition)
+```
+
+Latitude and Longitude: An examination of a map of Seattle with the pricing superimposed gives the clear impression that there are some strong geographic components to pricing.  While a categorical variable measure like neighborhood, or a distance from the city center might better represent the differences in pricing, use of latitude and longitude might suffice to help refine the model's projections.
+
+```{r}
+round(cor(HomeSales[c(3:8,11:16)]),3)
+```
+
+The strongest correlations for price are Grade, Square Footage above ground, Square Feet of Living Space and Bathrooms.  Surprisingly, lot size offers nearly no correlation to price - although this could also be reflective of confounding variables like location.  Based on the correlations, I would expect the four variables mentioned will have the largest influence on the final model.
+
+
+####Splitting the Observations
+As the data set contains more than 20,000 observations of price and the explanatory variables, there is an adequate supply of observations to use part of the data to create the model and part of the data to test the model.  Random sampling of about one-third of the observations will be used to create the model.
+
+```{r}
+#set.seed(1202104298)
+SampleCount<-round(length(HomeSales$id)/3.5)
+TrainDataSample<-sample(nrow(HomeSales), SampleCount, replace=FALSE)
+TrainDataSample2<-HomeSales[TrainDataSample,]
+TestData<-HomeSales[-TrainDataSample,]
+```
+
+####Modeling With Principal Component Analysis
+Our objective is to find the explanatory variables that explain the variation in price best, and then model the price equation.  We will use principal component analysis and regression to complete this objective.  There is likely several colinear variables when you consider the integrated development of a house.  Larger houses are likely to have more bedrooms and bathrooms, and in return are likely to be on a larger lot.  In a purely regression solution to this question, we could have severe variance inflation.  Principal component analysis should help resolve these complex colinearity problems.
+
+In this case, the principal component analysis will center and scale all variables based on their mean and standard deviation.  In the results, it's important to consider that our input values for the variables are expressed in terms of one standard deviation of the value. 
+
+```{r}
+PCM<-prcomp(TrainDataSample2[c(4:5,8,11:12,15,18:19,22,25,26,27)], center=TRUE, scale=TRUE)
+PCM
+summary(PCM)
+plot(PCM, type="l")
+```
+
+Based on the summary of principal component analysis, we see the first component comprising 0.37 of cumulative variance, the second with 0.15, the third with 0.13, the fourth with 0.08, with a total of six principal components required to reach 0.80 of the overall variance and seven principal components to reach on 0.90 of the overall variance.
+
+We will map eight of the principal components in the linear regression model.
+
+```{r}
+traindata<-as.data.frame(predict(PCM,TrainDataSample2[c(4:5,8,11:12,15,18:19,22,25,26,27)]))
+model<-lm(TrainDataSample2$LogSalePrice ~ traindata$PC1 + traindata$PC2 + traindata$PC3 + traindata$PC4 + traindata$PC5 + traindata$PC6 + traindata$PC7+traindata$PC8)
+summary(model)
+```
+
+Mapping eight of the principal components into a linear model, we have an adjusted R-Squared value of 0.74 showing that 74% of the variability of the Log Sale price is explained by the eight principal components in the model.  However, with the p-value for principal component 5 equal to 0.886, we would fail to reject the null hypothesis that the coefficient for principal component five and above are all zero.  We will model again, this time with only four principal components.
+
+
+```{r}
+traindata2<-as.data.frame(predict(PCM,TestData[c(4:5,8,11:12,15,18:19,22,25,26,27)]))
+
+results<-predict(model,traindata, interval='predict')
+results<-cbind(results, TrainDataSample2$LogSalePrice)
+results<-as.data.frame(results)
+
+results$Price<-(TrainDataSample2$price)
+results$Predicted<-exp(results$fit)
+results$difference<-(results$Price-results$Predicted)
+results$percentage<-abs(results$difference/results$Price)
+MAPE1<-(100/length(results$Price))*sum(results$percentage)
+MAPE1
+```
+
+
+
+```{r}
+
+model2<-lm(TrainDataSample2$LogSalePrice ~ traindata$PC1 + traindata$PC2 + traindata$PC3 + traindata$PC4)
+summary(model2)
+
+```
+
+With only 4 principal components, our p-value for each of the coefficients is now <0.001, as well as for our intercept.  The adjusted R-squared value still registers a good 0.71, meaning our model represented 71% of variance in the price of homes from the 4 principal components and the explanatory variables and data underlying them.
+
+```{r}
+traindata<-as.data.frame(predict(PCM,TestData[c(4:5,8,11:12,15,18:19,22,25,26,27)]))
+
+results2<-predict(model2,TestData, interval='predict')
+results2<-as.data.frame(results2)
+
+results2$Price<-(TestData$price)
+results2$Predicted<-exp(results2$fit)
+results2$difference<-(results2$Price-results2$Predicted)
+results2$percentage<-abs(results2$difference/results2$Price)
+MAPE2<-(100/length(results2$Price))*sum(results2$percentage)
+MAPE2
+#sqrt(mean((results2$difference)^2))
+```
+
+
+within our 15,438 observations used to test the model, the model had increasing residuals for the range above $1MM of predicted value. Compared against the actual sale price, the MAPE is 21.5%. 
+
+```{r fig.width=10, fig.height=3, echo=FALSE}
+plot(model2)
+
+```
+
+The model shows mostly a good distribution of residuals, but an increasing variance from normality exhibited at the limits of the expected value.  Another model using the square root of price as the response variable was also used, but did not offer any advantage in terms of residual fit versus the log transformation.
+
+```{r}
+#extract a final equation
+Final<-PCM$rotation[,1:5]*(model2$coefficients[2:5])
+rowSums(Final)
+colMeans(HomeSales[c(4:8,11:15,18:19, 22,25:28)], na.rm=TRUE)
+```
+
+In explaining the final model, it's important to consider the process of principal component analysis as applied in this paper is using centered and scaled data and the coefficients in the model are expressing the price from that assumption.  
+
+Intercept: The intercept is 13.05, that when reverse log transforms equates to a home price of $466,308 if we assume that all other variable take the value of 0 (giving the average house in Seattle based on the criteria selected into the model.)
+
+Bedrooms: For each standard deviation (0.65) above the mean number of bedrooms (3.4), the price increases by 9.2%.
+
+Bathrooms: For each standard deviation (0.77) above the mean number of bathrooms (2.1), the price increases by 12.2%. 
+
+Floors: For each standard deviation (0.54) above the mean number of bathrooms (1.5), the price decreases by 0.3%. 
+
+Lot Square Footage: For each standard deviation (0.90) above the mean log lot square footage (9.0), the price decreases by 5.5%.
+
+Living Square Footage: For each standard deviation (0.42) above the mean log living square footage (7.5), the price increases by 10.2%.
+
+Above Grade Square Footage: For each standard deviation (0.43) above the mean log above grade living space (7.4), the price decreases by 0.1%.
+
+Basement Square Footage: For each standard deviation (3.1) above the mean log basement square footage (2.5), the price decreases 32%.
+
+Latitude: For each standard deviation (0.1) of latitude going North from the mean (47.56 degrees North), price decreases 0.1%.  
+
+Longitude: For each standard deviation (0.1) of longitude going West from the mean (122.21 Degrees West), price decreases 9.5%.
+
+Year Built: For each standard deviation (29.4 years) of year built above the mean (1971), price increases by 5%.
+
+Condition: For each standard deviation (0.65) of score above the mean (3.4), price increases by 13%.
+
+Grade: For each standard deviation (1.2) of score above the mean (7.7), price increases by 6.5%.
+
+####Conclusions
+Home prices in King County, WA follow a basic pattern, with a mean price of $466,308 and increases coming from Square Footage, number of bathrooms and number of bedrooms primarily.
